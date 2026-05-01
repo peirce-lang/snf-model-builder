@@ -11,86 +11,83 @@ Companion to [Reckoner](https://github.com/peirce-lang/reckoner).
 
 ---
 
-## Folder layout
+## Important — this repo is one half of a pair
+
+Model Builder is the **wizard frontend**. The Python backend it talks to lives
+inside [Reckoner](https://github.com/peirce-lang/reckoner) (specifically,
+`model_builder_api.py` mounts as a router inside `reckoner_api.py`).
+
+**One Python server runs both tools.** Reckoner's UI runs at
+`http://localhost:5173`; Model Builder's UI runs at `http://localhost:5174`;
+both share the FastAPI backend on `http://localhost:8000`.
+
+You need **both repos cloned** to use Model Builder. Clone them next to each
+other:
 
 ```
-snf-toolkit/
-├── reckoner/                    ← Reckoner frontend + Python backend
-│   ├── src/
-│   │   ├── ReckonerSNF.jsx
-│   │   ├── TrieValuePanel.jsx
-│   │   ├── ResultCard.jsx
-│   │   └── main.tsx
-│   ├── reckoner_api.py          ← Python API server (shared — runs both tools)
-│   ├── model_builder_api.py     ← Model Builder router (mounted into reckoner_api.py)
-│   ├── postgres_adapter.py
-│   └── .env
-│
-└── snf-model-builder/           ← this repo
-    ├── src/
-    │   ├── ModelBuilderApp.jsx  ← wizard frontend
-    │   ├── main.tsx
-    │   └── style.css
-    ├── index.html
-    ├── package.json
-    ├── vite.config.js
-    └── README.md
+your-projects/
+├── reckoner/                ← Python backend + Reckoner UI
+└── snf-model-builder/       ← this repo (wizard UI only)
 ```
 
-**One Python server runs both tools.**
-`model_builder_api.py` mounts as a router inside `reckoner_api.py`.
-Reckoner and Model Builder share the same FastAPI process on port 8000.
+If you haven't set up Reckoner yet, do that first — its README walks through
+the Python backend setup. Then come back here for the wizard frontend.
 
 ---
 
 ## Setup
 
-### 1. Python backend (in the `reckoner/` folder)
+This assumes you've already cloned and started Reckoner per its README.
+The Python backend at `localhost:8000` must be running.
+
+### 1. Clone this repo next to your `reckoner/` folder
 
 ```bash
-pip install fastapi uvicorn snf-peirce duckdb pandas openpyxl sqlalchemy psycopg2-binary
-pip install tantivy        # recommended — variant detection
+# from wherever your reckoner folder lives — go up one level and clone
+cd ..
+git clone https://github.com/peirce-lang/snf-model-builder
+cd snf-model-builder
 ```
 
-Make sure `model_builder_api.py` is in the same folder as `reckoner_api.py`, then start the server:
+### 2. Install frontend dependencies
 
 ```bash
-cd snf-toolkit/reckoner
-python reckoner_api.py
-```
-
-You should see:
-```
-============================================================
-  Reckoner API — Python backend
-  Model Builder endpoints: /api/mb/*
-============================================================
-[api] Model Builder endpoints loaded at /api/mb
-```
-
-### 2. Model Builder frontend (this folder)
-
-```bash
-cd snf-toolkit/snf-model-builder
 npm install
+```
+
+### 3. Start the wizard
+
+```bash
 npm run dev
 ```
 
 You should see:
+
 ```
 VITE v5.x.x  ready in ~200ms
 
   Local:   http://localhost:5174/
 ```
 
-### 3. Open Model Builder
+### 4. Open Model Builder
 
 ```
 http://localhost:5174
 ```
 
-Reckoner runs at `http://localhost:5173` as normal.
-Both can run simultaneously — they share the same Python backend.
+Reckoner runs at `http://localhost:5173` as normal. Both can run
+simultaneously — they share the same Python backend.
+
+---
+
+## Six steps to load your data
+
+1. **Upload** — drop a CSV or Excel file, or connect to a live Postgres table
+2. **Map** — assign each column to a semantic dimension (WHO / WHAT / WHEN / WHERE / WHY / HOW)
+3. **Review** — pre-ingest flags surface variant candidates, null coverage, singletons
+4. **Nucleus** — declare the column (or combination) that uniquely identifies each row
+5. **Compile** — name your dataset and pick a target (DuckDB for local use)
+6. **Load into Reckoner** — drop the compiled `.duckdb` file in `reckoner/substrates/` and restart `reckoner_api.py`
 
 ---
 
@@ -99,23 +96,45 @@ Both can run simultaneously — they share the same Python backend.
 The wizard talks to the Python backend at `http://localhost:8000/api/mb/`:
 
 | Endpoint | Method | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `/api/mb/upload` | POST | Upload CSV or Excel. Returns columns + samples. |
 | `/api/mb/introspect` | POST | Read-only Postgres introspection via SQLAlchemy. |
 | `/api/mb/review` | POST | Pre-ingest review — variant detection, null coverage, singletons. |
 | `/api/mb/compile` | POST | Compile BuildSpec → artifact. |
 | `/api/mb/download/{filename}` | GET | Download compiled artifact. |
 
-Full BuildSpec / BuildResult contract: see `model_builder_api.py` docstring and the
-[SNF Model Builder spec](https://github.com/peirce-lang/snf-model-builder/docs).
+Full BuildSpec / BuildResult contract: see `model_builder_api.py` docstring
+in the [Reckoner repo](https://github.com/peirce-lang/reckoner) and the
+[Model Builder API spec](https://github.com/peirce-lang/snf-model-builder/blob/main/MODEL_BUILDER_API.md).
 
 This contract is **stable as of v1.0**. Third-party clients are welcome.
 
 ---
 
+## Repository layout
+
+```
+snf-model-builder/
+├── src/
+│   ├── ModelBuilderApp.jsx    ← wizard frontend
+│   ├── main.tsx
+│   └── style.css
+├── index.html
+├── package.json
+├── vite.config.js
+├── MODEL_BUILDER_API.md       ← full API contract for third-party clients
+└── README.md                  ← this file
+```
+
+The Python backend (`model_builder_api.py`) lives in the
+[Reckoner repo](https://github.com/peirce-lang/reckoner) and is mounted into
+`reckoner_api.py` automatically. You don't run it separately.
+
+---
+
 ## License
 
-AGPL-3.0. See [LICENSE](LICENSE).
+AGPL-3.0. See [LICENSE](https://github.com/peirce-lang/snf-model-builder/blob/main/LICENSE).
 
 Third-party clients that talk to the local API are not subject to AGPL —
 only modifications to the server itself that are distributed or run as a
