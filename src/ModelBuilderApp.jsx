@@ -238,45 +238,125 @@ function FlagCard({ flag, onAcknowledge, acknowledged }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function Step1_ChooseSource({ onSourceReady }) {
-  const [sourceType, setSourceType] = useState(null); // 'file' | 'sql' | null
+  const [sourceType, setSourceType] = useState(null);
+  // 'file' | 'sql' | 'osi' | 'json' | 'yaml' | 'dbt' | null
 
   return (
     <div>
       <h2 className="text-xl font-bold text-gray-900 mb-1">Where is your data?</h2>
       <p className="text-sm text-gray-500 mb-6">
-        Pick how you want to bring it in. Both paths end up in Reckoner — they just start differently.
+        Pick how you want to bring it in. Every path ends up in Reckoner.
       </p>
 
       {!sourceType && (
-        <div className="grid grid-cols-2 gap-4">
-          <button onClick={() => setSourceType('file')}
-            className="text-left p-6 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 transition-all group">
-            <Upload size={28} className="text-gray-400 group-hover:text-blue-500 mb-3 transition-colors" />
-            <div className="font-semibold text-gray-800 mb-1">Upload a file</div>
-            <div className="text-xs text-gray-500">CSV or Excel. Drag and drop or browse.</div>
-          </button>
-          <button onClick={() => setSourceType('sql')}
-            className="text-left p-6 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 transition-all group">
-            <Server size={28} className="text-gray-400 group-hover:text-blue-500 mb-3 transition-colors" />
-            <div className="font-semibold text-gray-800 mb-1">Connect to Postgres</div>
-            <div className="text-xs text-gray-500">
-              Read directly from a live database. Your data never leaves the server.
+        <div className="space-y-4">
+          {/* Row 1 — raw data */}
+          <div>
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Raw data</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => setSourceType('file')}
+                className="text-left p-5 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 transition-all group">
+                <Upload size={24} className="text-gray-400 group-hover:text-blue-500 mb-2 transition-colors" />
+                <div className="font-semibold text-gray-800 mb-0.5 text-sm">Upload a file</div>
+                <div className="text-xs text-gray-500">CSV or Excel. Drag and drop or browse.</div>
+              </button>
+              <button onClick={() => setSourceType('sql')}
+                className="text-left p-5 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 transition-all group">
+                <Server size={24} className="text-gray-400 group-hover:text-blue-500 mb-2 transition-colors" />
+                <div className="font-semibold text-gray-800 mb-0.5 text-sm">Connect to Postgres</div>
+                <div className="text-xs text-gray-500">Read directly from a live database.</div>
+              </button>
             </div>
-          </button>
+          </div>
+
+          {/* Row 2 — semantic vocabularies */}
+          <div>
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Semantic vocabularies</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => setSourceType('dbt')}
+                className="text-left p-5 rounded-xl border-2 border-gray-200 hover:border-purple-400 hover:bg-purple-50/30 transition-all group">
+                <Database size={24} className="text-gray-400 group-hover:text-purple-500 mb-2 transition-colors" />
+                <div className="font-semibold text-gray-800 mb-0.5 text-sm">Upload a dbt schema</div>
+                <div className="text-xs text-gray-500">schema.yml — dimension mappings pre-filled from your dbt model.</div>
+              </button>
+              <button onClick={() => setSourceType('osi')}
+                className="text-left p-5 rounded-xl border-2 border-gray-200 hover:border-purple-400 hover:bg-purple-50/30 transition-all group">
+                <Table2 size={24} className="text-gray-400 group-hover:text-purple-500 mb-2 transition-colors" />
+                <div className="font-semibold text-gray-800 mb-0.5 text-sm">Upload an OSI model</div>
+                <div className="text-xs text-gray-500">Open Semantic Interchange YAML or JSON.</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Row 3 — generic structured files */}
+          <div>
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Generic structured files</p>
+            <div className="grid grid-cols-2 gap-3">
+              <button onClick={() => setSourceType('json')}
+                className="text-left p-5 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 transition-all group">
+                <FileText size={24} className="text-gray-400 group-hover:text-blue-500 mb-2 transition-colors" />
+                <div className="font-semibold text-gray-800 mb-0.5 text-sm">Upload JSON</div>
+                <div className="text-xs text-gray-500">Flat JSON array. Common envelope shapes unwrapped automatically.</div>
+              </button>
+              <button onClick={() => setSourceType('yaml')}
+                className="text-left p-5 rounded-xl border-2 border-gray-200 hover:border-blue-400 hover:bg-blue-50/30 transition-all group">
+                <FileText size={24} className="text-gray-400 group-hover:text-blue-500 mb-2 transition-colors" />
+                <div className="font-semibold text-gray-800 mb-0.5 text-sm">Upload YAML</div>
+                <div className="text-xs text-gray-500">Generic YAML flat arrays. Full mapping required.</div>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       {sourceType === 'file' && (
-        <Step1_FileUpload
+        <Step1_FileUpload onReady={onSourceReady} onBack={() => setSourceType(null)} />
+      )}
+      {sourceType === 'sql' && (
+        <Step1_SqlConnect onReady={onSourceReady} onBack={() => setSourceType(null)} />
+      )}
+      {sourceType === 'dbt' && (
+        <Step1_VocabUpload
           onReady={onSourceReady}
           onBack={() => setSourceType(null)}
+          vocabType="dbt"
+          endpoint="/mb/dbt/parse"
+          accept=".yaml,.yml"
+          label="dbt schema.yml"
+          hint="Drop your dbt schema.yml here — dimension mappings will be pre-filled from your model."
         />
       )}
-
-      {sourceType === 'sql' && (
-        <Step1_SqlConnect
+      {sourceType === 'osi' && (
+        <Step1_VocabUpload
           onReady={onSourceReady}
           onBack={() => setSourceType(null)}
+          vocabType="osi"
+          endpoint="/mb/osi/parse"
+          accept=".yaml,.yml,.json"
+          label="OSI model"
+          hint="Drop your OSI YAML or JSON model here."
+        />
+      )}
+      {sourceType === 'json' && (
+        <Step1_VocabUpload
+          onReady={onSourceReady}
+          onBack={() => setSourceType(null)}
+          vocabType="json"
+          endpoint="/mb/upload"
+          accept=".json"
+          label="JSON file"
+          hint="Drop a flat JSON array here. Common envelope shapes (data, results, items) are unwrapped automatically."
+        />
+      )}
+      {sourceType === 'yaml' && (
+        <Step1_VocabUpload
+          onReady={onSourceReady}
+          onBack={() => setSourceType(null)}
+          vocabType="yaml"
+          endpoint="/mb/upload"
+          accept=".yaml,.yml"
+          label="YAML file"
+          hint="Drop a flat YAML array here. Full column mapping required."
         />
       )}
     </div>
@@ -373,6 +453,120 @@ function Step1_FileUpload({ onReady, onBack }) {
             <div>
               <p className="font-semibold text-gray-700">Drop your file here</p>
               <p className="text-sm text-gray-400 mt-1">or click to browse — CSV or Excel</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <div className="mt-3 flex items-center gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          <AlertTriangle size={14} /> {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Vocabulary upload sub-panel (OSI, dbt, JSON, YAML) ───────────────────────
+// Generic drop-zone for any vocabulary-type upload. vocabType, endpoint, accept,
+// label, and hint are passed as props so this one component handles all four paths.
+
+function Step1_VocabUpload({ onReady, onBack, vocabType, endpoint, accept, label, hint }) {
+  const [dragging, setDragging] = useState(false);
+  const [file, setFile]         = useState(null);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState(null);
+  const inputRef = useRef();
+
+  const handleFile = useCallback(async (f) => {
+    if (!f) return;
+    setFile(f);
+    setError(null);
+    setLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const r = await fetch(`${API_URL}${endpoint}`, { method: 'POST', body: fd });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || `Upload failed: ${r.status}`);
+      }
+      const data = await r.json();
+
+      // Build sourceData shape — vocab sources pass source_type so
+      // the wizard can skip step 3 and pre-fill nucleus / lens.
+      onReady({
+        type:            vocabType,
+        source_type:     data.source_type || vocabType,
+        file,
+        format:          vocabType,
+        columns:         data.columns,
+        source_token:    data.upload_token,
+        label:           f.name,
+        // vocabulary-specific extras (used by step 4 / 5 pre-fill)
+        nucleus_hints:   data.nucleus_hints   || {},
+        lens_candidates: data.lens_candidates || {},
+        osi_meta:        data.osi_meta        || null,
+        dbt_meta:        data.dbt_meta        || null,
+        model_count:     data.model_count     || null,
+        parse_warnings:  data.parse_warnings  || [],
+      });
+    } catch (e) {
+      setError(`Couldn't read the file: ${e.message}`);
+      setFile(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [onReady, vocabType, endpoint]);
+
+  const onDrop = useCallback((e) => {
+    e.preventDefault();
+    setDragging(false);
+    handleFile(e.dataTransfer.files[0]);
+  }, [handleFile]);
+
+  return (
+    <div>
+      <button onClick={onBack} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 mb-4">
+        <ChevronLeft size={13} /> Back
+      </button>
+
+      <div
+        onDragOver={e => { e.preventDefault(); setDragging(true); }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={onDrop}
+        onClick={() => !loading && inputRef.current?.click()}
+        className={`relative border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all
+          ${dragging           ? 'border-purple-400 bg-purple-50 scale-[1.01]'         : ''}
+          ${file && !loading   ? 'border-emerald-300 bg-emerald-50'                    : ''}
+          ${!file && !dragging ? 'border-gray-200 hover:border-purple-300 hover:bg-purple-50/30' : ''}
+        `}
+      >
+        <input ref={inputRef} type="file" accept={accept} className="hidden"
+          onChange={e => handleFile(e.target.files[0])} />
+        {loading ? (
+          <div className="flex flex-col items-center gap-3">
+            <Loader2 size={40} className="text-purple-400 animate-spin" />
+            <p className="text-sm text-gray-500">Parsing your {label}…</p>
+          </div>
+        ) : file ? (
+          <div className="flex flex-col items-center gap-3">
+            <CheckCircle2 size={40} className="text-emerald-500" />
+            <div>
+              <p className="font-semibold text-gray-900">{file.name}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{(file.size / 1024).toFixed(0)} KB</p>
+            </div>
+            <button onClick={e => { e.stopPropagation(); setFile(null); setError(null); }}
+              className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1">
+              <X size={12} /> Choose a different file
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3">
+            <Upload size={40} className="text-gray-300" />
+            <div>
+              <p className="font-semibold text-gray-700">Drop your {label} here</p>
+              <p className="text-sm text-gray-400 mt-1">{hint}</p>
             </div>
           </div>
         )}
@@ -792,9 +986,15 @@ function Step3_Review({ mapping, uploadToken, onNext, onBack }) {
 // STEP 4 — Nucleus Declaration
 // ─────────────────────────────────────────────────────────────────────────────
 
-function Step4_Nucleus({ columns, onNext, onBack }) {
+function Step4_Nucleus({ columns, nucleusHint, onNext, onBack }) {
   const [nucleusType, setNucleusType] = useState('single');
-  const [singleCol,   setSingleCol]   = useState(columns[0]?.column || '');
+
+  // Pre-select from hint if available, otherwise fall back to first column
+  const hintCol = nucleusHint && columns.find(c => c.column === nucleusHint)
+    ? nucleusHint
+    : columns[0]?.column || '';
+
+  const [singleCol,    setSingleCol]    = useState(hintCol);
   const [compoundCols, setCompoundCols] = useState(
     columns.length >= 2 ? [columns[0].column, columns[1].column] : [columns[0]?.column || '']
   );
@@ -953,10 +1153,22 @@ function Step4_Nucleus({ columns, onNext, onBack }) {
 
 function Step5_NameAndTarget({ sourceData, onNext, onBack }) {
   const isSql = sourceData?.type === 'sql';
-  const defaultName = (sourceData?.label || 'dataset')
+  const isDbt = sourceData?.type === 'dbt';
+
+  // For dbt sources, prefer the first model name over the filename
+  const dbtModelName = isDbt && sourceData.dbt_meta
+    ? Object.keys(sourceData.dbt_meta)[0]
+    : null;
+
+  const defaultName = (dbtModelName || sourceData?.label || 'dataset')
     .replace(/\.[^.]+$/, '')
     .replace(/[^a-z0-9_]/gi, '_')
     .toLowerCase();
+
+  // Lens candidates from dbt metrics block — flat list across all models
+  const lensCandidates = isDbt && sourceData.lens_candidates
+    ? Object.values(sourceData.lens_candidates).flat().map(c => c.lens_id)
+    : [];
 
   const [lensName,   setLensName]   = useState(defaultName);
   const [outputName, setOutputName] = useState(defaultName);
@@ -1005,6 +1217,27 @@ function Step5_NameAndTarget({ sourceData, onNext, onBack }) {
               focus:outline-none focus:ring-2 focus:ring-blue-300"
             placeholder="my_dataset" />
           <p className="text-xs text-gray-400 mt-1">Lowercase letters, numbers, and underscores only.</p>
+
+          {/* dbt lens candidate chips — one-click name suggestions from metrics block */}
+          {lensCandidates.length > 0 && (
+            <div className="mt-2">
+              <p className="text-xs text-gray-400 mb-1.5">Suggestions from your dbt metrics:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {lensCandidates.map(name => (
+                  <button
+                    key={name}
+                    onClick={() => { setLensName(name); setOutputName(name); }}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-all
+                      ${lensName === name
+                        ? 'bg-purple-100 border-purple-300 text-purple-700 font-medium'
+                        : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-purple-300 hover:text-purple-600'
+                      }`}>
+                    {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Output name — label varies by path */}
@@ -1276,12 +1509,19 @@ export default function ModelBuilderApp() {
   };
 
   // BuildSpec assembled from accumulated state — source shape varies by type
+  const isVocabSource = ['osi', 'dbt', 'json', 'yaml'].includes(sourceData?.type);
+
   const buildSpec = sourceData && mapping && nucleus && lensConfig ? {
     source: sourceData.type === 'sql' ? {
       type:             'sql',
       introspect_token: sourceData.source_token,
       table_name:       sourceData.table_name,
       schema_name:      sourceData.schema_name,
+    } : isVocabSource ? {
+      type:         sourceData.type,       // 'osi' | 'dbt' | 'json' | 'yaml'
+      upload_token: sourceData.source_token,
+      filename:     sourceData.file?.name,
+      format:       sourceData.format,
     } : {
       type:         'file',
       upload_token: sourceData.source_token,
@@ -1340,7 +1580,7 @@ export default function ModelBuilderApp() {
               <Step2_MapColumns
                 columns={sourceData.columns}
                 onBack={() => setStep(1)}
-                onNext={m => { setMapping(m); setStep(3); }}
+                onNext={m => { setMapping(m); isVocabSource ? setStep(4) : setStep(3); }}
               />
             )}
             {step === 3 && mapping && (
@@ -1354,7 +1594,8 @@ export default function ModelBuilderApp() {
             {step === 4 && mapping && (
               <Step4_Nucleus
                 columns={mapping}
-                onBack={() => setStep(3)}
+                nucleusHint={sourceData?.nucleus_hints ? Object.values(sourceData.nucleus_hints)[0] : null}
+                onBack={() => isVocabSource ? setStep(2) : setStep(3)}
                 onNext={n => { setNucleus(n); setStep(5); }}
               />
             )}
