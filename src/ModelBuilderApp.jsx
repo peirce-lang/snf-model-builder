@@ -63,6 +63,7 @@ import {
   Info, Download, Database, FileText, Loader2, X, Plus, RefreshCw,
   Server, Eye, EyeOff, Table2
 } from 'lucide-react';
+import { Step5a_DataConnect } from './Step5a_DataConnect';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -1304,15 +1305,17 @@ function Step5_NameAndTarget({ sourceData, onNext, onBack }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function Step6_Compile({ buildSpec, onBack, onStartOver }) {
-  const [status,   setStatus]   = useState('idle');   // idle | compiling | done | error
-  const [result,   setResult]   = useState(null);
-  const [error,    setError]    = useState(null);
+  const [status,    setStatus]    = useState('idle');
+  const [result,    setResult]    = useState(null);
+  const [error,     setError]     = useState(null);
+  const [saving,    setSaving]    = useState(false);
+  const [saved,     setSaved]     = useState(false);
+  const [saveError, setSaveError] = useState(null);
 
   const compile = useCallback(async () => {
     setStatus('compiling');
     setError(null);
     try {
-      // TODO: backend endpoint POST /api/mb/compile
       const r = await fetch(`${API_URL}/mb/compile`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1334,12 +1337,25 @@ function Step6_Compile({ buildSpec, onBack, onStartOver }) {
   // Auto-start compile when step mounts
   React.useEffect(() => { compile(); }, [compile]);
 
-  const download = () => {
+  const saveToReckoner = async () => {
     if (!result?.download_url) return;
-    const a = document.createElement('a');
-    a.href = result.download_url;
-    a.download = `${buildSpec.target.output_name}.duckdb`;
-    a.click();
+    const filename = result.download_url.split('/').pop();
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const r = await fetch(`${API_URL}/mb/save-to-substrates/${filename}`, {
+        method: 'POST',
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || `Save failed: ${r.status}`);
+      }
+      setSaved(true);
+    } catch(e) {
+      setSaveError(e.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -1349,10 +1365,14 @@ function Step6_Compile({ buildSpec, onBack, onStartOver }) {
       </h2>
       <p className="text-sm text-gray-500 mb-8">
         {status === 'done'
-          ? `Download the file and drop it in your Reckoner substrate folder.`
+          ? saved
+            ? 'Your substrate has been added to Reckoner. Switch to Reckoner and start querying.'
+            : buildSpec.target.backend === 'postgres-views'
+              ? 'Download the SQL script and give it to your DBA.'
+              : 'Click below to add this substrate directly to Reckoner.'
           : status === 'error'
-          ? `See the error below. You can go back and fix the issue.`
-          : `Translating your data into SNF shape. This usually takes a few seconds.`}
+          ? 'See the error below. You can go back and fix the issue.'
+          : 'Translating your data into SNF shape. This usually takes a few seconds.'}
       </p>
 
       {/* Compiling */}
@@ -1389,9 +1409,9 @@ function Step6_Compile({ buildSpec, onBack, onStartOver }) {
           {/* Stats */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: 'Entities',   value: result.entity_count?.toLocaleString() ?? '—' },
-              { label: 'Facts',      value: result.fact_count?.toLocaleString()   ?? '—' },
-              { label: 'Warnings',   value: result.warnings?.length ?? 0           },
+              { label: 'Entities', value: result.entity_count?.toLocaleString() ?? '—' },
+              { label: 'Facts',    value: result.fact_count?.toLocaleString()   ?? '—' },
+              { label: 'Warnings', value: result.warnings?.length ?? 0           },
             ].map(s => (
               <div key={s.label} className="rounded-xl border border-gray-200 bg-gray-50 p-4 text-center">
                 <div className="text-2xl font-bold text-gray-900">{s.value}</div>
@@ -1432,37 +1452,70 @@ function Step6_Compile({ buildSpec, onBack, onStartOver }) {
             </div>
           )}
 
-          {/* Download */}
-          <button onClick={download}
-            className="w-full flex items-center justify-center gap-3 py-4 px-6 rounded-xl
-              bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-base
-              shadow-lg hover:shadow-xl transition-all">
-            <Download size={20} />
-            {buildSpec.target.backend === 'postgres-views'
-              ? `Download ${buildSpec.target.output_name}_snf_views.sql`
-              : `Download ${buildSpec.target.output_name}.duckdb`}
-          </button>
+          {/* SQL download (postgres-views path — browser download still works here) */}
+          {buildSpec.target.backend === 'postgres-views' && (
+            <button onClick={() => {
+              const a = document.createElement('a');
+              a.href = result.download_url;
+              a.download = `${buildSpec.target.output_name}_snf_views.sql`;
+              a.click();
+            }}
+              className="w-full flex items-center justify-center gap-3 py-4 px-6 rounded-xl
+                bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-base
+                shadow-lg hover:shadow-xl transition-all">
+              <Download size={20} />
+              {`Download ${buildSpec.target.output_name}_snf_views.sql`}
+            </button>
+          )}
 
-          {/* Next step hint — varies by backend */}
-          <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
-            <div className="flex items-start gap-3">
-              <Database size={16} className="text-blue-400 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-blue-800">
-                {buildSpec.target.backend === 'postgres-views' ? (
-                  <>
-                    <strong>Next:</strong> Give the <code className="text-xs bg-blue-100 px-1 rounded">.sql</code> file
-                    to your DBA. They review and run it against your database — no data moves.
-                    Then open Reckoner, point it at your Postgres instance, and start querying.
-                  </>
-                ) : (
-                  <>
-                    <strong>Next:</strong> Drop this file into your Reckoner substrate folder.
-                    It will appear in the schema picker automatically. Open Reckoner and start querying.
-                  </>
-                )}
+          {/* DuckDB — save directly to Reckoner substrates folder */}
+          {buildSpec.target.backend !== 'postgres-views' && (
+            <div className="space-y-2">
+              {!saved ? (
+                <>
+                  <button onClick={saveToReckoner} disabled={saving}
+                    className={`w-full flex items-center justify-center gap-3 py-4 px-6 rounded-xl
+                      font-semibold text-base shadow-lg transition-all
+                      ${saving
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                        : 'bg-emerald-600 hover:bg-emerald-700 text-white hover:shadow-xl'}`}>
+                    {saving
+                      ? <><Loader2 size={20} className="animate-spin" /> Saving…</>
+                      : <><Download size={20} /> Add to Reckoner</>}
+                  </button>
+                  {saveError && (
+                    <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                      <AlertTriangle size={13} className="mt-0.5 flex-shrink-0" />
+                      <span>{saveError}</span>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle2 size={16} className="text-emerald-500 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-emerald-800">
+                      <strong>Added to Reckoner.</strong> Switch to Reckoner, click LOAD, and your new substrate will appear automatically.
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Next step hint */}
+          {buildSpec.target.backend === 'postgres-views' && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+              <div className="flex items-start gap-3">
+                <Database size={16} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                <div className="text-sm text-blue-800">
+                  <strong>Next:</strong> Give the <code className="text-xs bg-blue-100 px-1 rounded">.sql</code> file
+                  to your DBA. They review and run it against your database — no data moves.
+                  Then open Reckoner, point it at your Postgres instance, and start querying.
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           {/* Start over */}
           <div className="text-center">
@@ -1474,8 +1527,8 @@ function Step6_Compile({ buildSpec, onBack, onStartOver }) {
         </div>
       )}
 
-      {/* Back button (only shown before compile finishes, or on error) */}
-      {(status === 'error') && (
+      {/* Back button on error */}
+      {status === 'error' && (
         <div className="mt-6 pt-4 border-t border-gray-100">
           <button onClick={onBack}
             className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700">
@@ -1495,10 +1548,11 @@ export default function ModelBuilderApp() {
   const [step, setStep] = useState(1);
 
   // Accumulated state across steps
-  const [sourceData,  setSourceData]  = useState(null);  // { type, columns, source_token, label, ... }
-  const [mapping,     setMapping]     = useState(null);   // [{ column, dimension, semantic_key }]
-  const [nucleus,     setNucleus]     = useState(null);   // { type, columns, separator, prefix }
-  const [lensConfig,  setLensConfig]  = useState(null);   // { lens_id, output_name, backend }
+  const [sourceData,    setSourceData]    = useState(null);  // { type, columns, source_token, label, ... }
+  const [mapping,       setMapping]       = useState(null);   // [{ column, dimension, semantic_key }]
+  const [nucleus,       setNucleus]       = useState(null);   // { type, columns, separator, prefix }
+  const [lensConfig,    setLensConfig]    = useState(null);   // { lens_id, output_name, backend }
+  const [dataConnected, setDataConnected] = useState(false);  // true after Step5a values loaded
 
   const startOver = () => {
     setStep(1);
@@ -1506,6 +1560,7 @@ export default function ModelBuilderApp() {
     setMapping(null);
     setNucleus(null);
     setLensConfig(null);
+    setDataConnected(false);
   };
 
   // BuildSpec assembled from accumulated state — source shape varies by type
@@ -1596,7 +1651,24 @@ export default function ModelBuilderApp() {
                 columns={mapping}
                 nucleusHint={sourceData?.nucleus_hints ? Object.values(sourceData.nucleus_hints)[0] : null}
                 onBack={() => isVocabSource ? setStep(2) : setStep(3)}
-                onNext={n => { setNucleus(n); setStep(5); }}
+                onNext={n => {
+                  setNucleus(n);
+                  const isDbVocab = ['dbt', 'osi'].includes(sourceData?.type);
+                  setStep(isDbVocab ? '5a' : 5);
+                }}
+              />
+            )}
+            {step === '5a' && (
+              <Step5a_DataConnect
+                sourceData={sourceData}
+                uploadToken={sourceData?.source_token}
+                onBack={() => setStep(4)}
+                onSkipToDuckDB={() => setStep(5)}
+                onDone={startOver}
+                onValuesLoaded={() => {
+                  setDataConnected(true);
+                  setStep(5);
+                }}
               />
             )}
             {step === 5 && (
