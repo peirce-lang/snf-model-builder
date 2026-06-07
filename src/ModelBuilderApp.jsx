@@ -57,13 +57,14 @@
  * }
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   Upload, ChevronRight, ChevronLeft, CheckCircle2, AlertTriangle,
   Info, Download, Database, FileText, Loader2, X, Plus, RefreshCw,
   Server, Eye, EyeOff, Table2
 } from 'lucide-react';
 import { Step5a_DataConnect } from './Step5a_DataConnect';
+import { Step4b_StructuralGroups } from './Step4b_StructuralGroups';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Config
@@ -392,7 +393,7 @@ function Step1_FileUpload({ onReady, onBack }) {
       const data = await r.json();
       onReady({
         type:         'file',
-        file,
+        file:         f,
         format:       ext === 'csv' ? 'csv' : 'excel',
         columns:      data.columns,
         source_token: data.upload_token,
@@ -406,11 +407,71 @@ function Step1_FileUpload({ onReady, onBack }) {
     }
   }, [onReady]);
 
+  // Native drop handler — used in dev (Firefox). WebView2 silently empties
+  // dataTransfer.files, so in the Tauri bundle we use the Tauri event instead.
   const onDrop = useCallback((e) => {
     e.preventDefault();
     setDragging(false);
-    handleFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
   }, [handleFile]);
+
+  // Tauri drag-drop — uses onDragDropEvent (Tauri v2 proper API).
+  // Falls back gracefully in dev (Firefox) via .catch().
+  const dropZoneRef = useRef();
+  const [pendingDropPath, setPendingDropPath] = useState(null);
+
+  const loadDroppedFile = () => {
+    if (!pendingDropPath) return;
+    const filePath = pendingDropPath;
+    setPendingDropPath(null);
+    const fileName = filePath.split(/[\/]/).pop();
+    setLoading(true);
+    setError(null);
+    fetch(`${API_URL}/mb/upload_path`.replace('localhost', '127.0.0.1'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_path: filePath }),
+    })
+      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
+      .then(data => {
+        const ext = fileName.split('.').pop().toLowerCase();
+        setFile({ name: fileName, size: 0 });
+        onReady({
+          type:         'file',
+          format:       ext === 'csv' ? 'csv' : 'excel',
+          columns:      data.columns,
+          source_token: data.upload_token,
+          row_count:    data.row_count,
+          label:        fileName,
+          source_label: fileName,
+          local_path:   filePath,
+        });
+      })
+      .catch(e => setError(`Could not load file: ${e?.detail || e?.message || String(e)}`))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    let unlisten;
+    import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) => {
+        return getCurrentWebview().onDragDropEvent((event) => {
+          const { type, paths } = event.payload || {};
+          if (type === 'enter' || type === 'over') { setDragging(true);  return; }
+          if (type === 'leave' || type === 'cancel') { setDragging(false); return; }
+          if (type !== 'drop' || !paths?.length) return;
+          setDragging(false);
+          // Store path in state — fetch happens in useEffect (Tauri event
+          // callbacks cannot make fetch requests in WebView2 context)
+          setPendingDropPath(paths[0]);
+        });
+      })
+      .then(fn => {
+        unlisten = fn;
+      })
+      .catch(err => console.log('[MB drop] not in Tauri context', err));
+    return () => { if (unlisten) unlisten(); };
+  }, [onReady]);
 
   return (
     <div>
@@ -418,7 +479,31 @@ function Step1_FileUpload({ onReady, onBack }) {
         <ChevronLeft size={13} /> Back
       </button>
 
+      {pendingDropPath && (
+        <div className="mb-3 flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-blue-900 truncate">
+              {pendingDropPath.split(/[\/]/).pop()}
+            </p>
+            <p className="text-xs text-blue-600 truncate">{pendingDropPath}</p>
+          </div>
+          <button
+            onClick={loadDroppedFile}
+            className="shrink-0 px-3 py-1.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            Load file
+          </button>
+          <button
+            onClick={() => setPendingDropPath(null)}
+            className="shrink-0 text-blue-400 hover:text-blue-600 text-xs"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div
+        ref={dropZoneRef}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
@@ -477,7 +562,46 @@ function Step1_VocabUpload({ onReady, onBack, vocabType, endpoint, accept, label
   const [file, setFile]         = useState(null);
   const [loading, setLoading]   = useState(false);
   const [error, setError]       = useState(null);
+  const [pendingDropPath, setPendingDropPath] = useState(null);
   const inputRef = useRef();
+
+  // Process dropped file path from React context, not Tauri event callback
+  useEffect(() => {
+    if (!pendingDropPath) return;
+    const filePath = pendingDropPath;
+    setPendingDropPath(null);
+    const fileName = filePath.split(/[\\/]/).pop();
+    setLoading(true);
+    setError(null);
+    fetch(`${API_URL}/mb/upload_path`.replace('localhost', '127.0.0.1'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_path: filePath }),
+    })
+      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e)))
+      .then(data => {
+        setFile({ name: fileName, size: 0 });
+        onReady({
+          type:            vocabType,
+          source_type:     data.source_type || vocabType,
+          format:          vocabType,
+          columns:         data.columns,
+          source_token:    data.upload_token,
+          row_count:       data.row_count,
+          label:           fileName,
+          source_label:    fileName,
+          local_path:      filePath,
+          nucleus_hints:   data.nucleus_hints   || {},
+          lens_candidates: data.lens_candidates || {},
+          osi_meta:        data.osi_meta        || null,
+          dbt_meta:        data.dbt_meta        || null,
+          model_count:     data.model_count     || null,
+          parse_warnings:  data.parse_warnings  || [],
+        });
+      })
+      .catch(e => setError(`Drop failed: ${e?.detail || e?.message || String(e)}`))
+      .finally(() => setLoading(false));
+  }, [pendingDropPath, onReady, vocabType]);
 
   const handleFile = useCallback(async (f) => {
     if (!f) return;
@@ -520,11 +644,41 @@ function Step1_VocabUpload({ onReady, onBack, vocabType, endpoint, accept, label
     }
   }, [onReady, vocabType, endpoint]);
 
+  // Native drop handler — used in dev (Firefox). WebView2 silently empties
+  // dataTransfer.files, so in the Tauri bundle we use the Tauri event instead.
   const onDrop = useCallback((e) => {
     e.preventDefault();
     setDragging(false);
-    handleFile(e.dataTransfer.files[0]);
+    if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
   }, [handleFile]);
+
+  // Tauri drag-drop — uses onDragDropEvent (Tauri v2 proper API).
+  // Passes the native path directly to the backend; no blob round-trip.
+  // Falls back to native DOM drop in dev (Firefox, no window.__TAURI__).
+  const dropZoneRef = useRef();
+  useEffect(() => {
+    let unlisten;
+    import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) =>
+        getCurrentWebview().onDragDropEvent((event) => {
+          console.log('[MB vocab drop] payload', event.payload);
+          const { type, paths } = event.payload || {};
+          if (type === 'enter' || type === 'over') { setDragging(true);  return; }
+          if (type === 'leave' || type === 'cancel') { setDragging(false); return; }
+          if (type !== 'drop' || !paths?.length) return;
+          setDragging(false);
+          // Store path in state — fetch happens in useEffect (Tauri event
+          // callbacks cannot make fetch requests in WebView2 context)
+          setPendingDropPath(paths[0]);
+        })
+      )
+      .then(fn => {
+        unlisten = fn;
+        console.log('[MB vocab drop] listener registered');
+      })
+      .catch(err => console.log('[MB vocab drop] not in Tauri context', err));
+    return () => { if (unlisten) unlisten(); };
+  }, [onReady]);
 
   return (
     <div>
@@ -533,6 +687,7 @@ function Step1_VocabUpload({ onReady, onBack, vocabType, endpoint, accept, label
       </button>
 
       <div
+        ref={dropZoneRef}
         onDragOver={e => { e.preventDefault(); setDragging(true); }}
         onDragLeave={() => setDragging(false)}
         onDrop={onDrop}
@@ -1148,15 +1303,25 @@ function Step4_Nucleus({ columns, nucleusHint, onNext, onBack }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STEP 5 — Name & Target
-// ─────────────────────────────────────────────────────────────────────────────
+// ── WS-4 patch for Step5_NameAndTarget ──────────────────────────────────────
+// Adds "Compare with existing dataset" lens chip section.
+// Fetches /api/schemas on mount, extracts unique lens_ids, surfaces as chips.
+// Selecting a chip locks lens_id and auto-suggests a unique output_name.
+// Locking is reversible — × clears the lock and restores free-text input.
+//
+// Changes from current Step5_NameAndTarget:
+//   + useEffect import (if not already present above)
+//   + existingLenses state   — string[] from /api/schemas
+//   + lensLocked state       — bool, true when user selected an existing lens
+//   + "Compare with existing dataset" chip section (always rendered)
+//   + lens name input: readonly + lock indicator when lensLocked
+//   + unlock (×) button clears lensLocked
+//   No changes to output name input, target picker, or NavButtons.
 
 function Step5_NameAndTarget({ sourceData, onNext, onBack }) {
   const isSql = sourceData?.type === 'sql';
   const isDbt = sourceData?.type === 'dbt';
 
-  // For dbt sources, prefer the first model name over the filename
   const dbtModelName = isDbt && sourceData.dbt_meta
     ? Object.keys(sourceData.dbt_meta)[0]
     : null;
@@ -1166,27 +1331,64 @@ function Step5_NameAndTarget({ sourceData, onNext, onBack }) {
     .replace(/[^a-z0-9_]/gi, '_')
     .toLowerCase();
 
-  // Lens candidates from dbt metrics block — flat list across all models
+  // Lens candidates from dbt metrics block
   const lensCandidates = isDbt && sourceData.lens_candidates
     ? Object.values(sourceData.lens_candidates).flat().map(c => c.lens_id)
     : [];
 
-  const [lensName,   setLensName]   = useState(defaultName);
-  const [outputName, setOutputName] = useState(defaultName);
-  // SQL sources default to views (data stays in place); file sources default to duckdb
-  const [backend, setBackend] = useState(isSql ? 'postgres-views' : 'duckdb');
+  const [lensName,      setLensName]      = useState(defaultName);
+  const [outputName,    setOutputName]    = useState(defaultName);
+  const [backend,       setBackend]       = useState(isSql ? 'postgres-views' : 'duckdb');
+
+  // WS-4 — existing lens state
+  const [existingLenses, setExistingLenses] = useState([]);   // lens_ids from loaded substrates
+  const [lensLocked,     setLensLocked]     = useState(false); // true when user picked existing
+
+  // Fetch existing lens_ids from Reckoner on mount
+  useEffect(() => {
+    fetch('/api/schemas')
+      .then(r => r.ok ? r.json() : { schemas: [] })
+      .then(data => {
+        const ids = [...new Set(
+          (data.schemas || [])
+            .map(s => s.lens_id)
+            .filter(Boolean)
+        )].sort();
+        setExistingLenses(ids);
+      })
+      .catch(() => {}); // non-fatal — chips just won't appear
+  }, []);
+
+  // When user picks an existing lens:
+  // - lock lens_id to that value
+  // - auto-suggest output_name = sourceFileStem + "_" + existing lens name
+  //   (keeps files distinct; user can edit freely)
+  const selectExistingLens = (id) => {
+    setLensName(id);
+    setLensLocked(true);
+    const sourceStem = defaultName;
+    // Avoid suggesting a name identical to the lens (would collide with first substrate)
+    const suggested = sourceStem === id ? `${id}_2` : `${sourceStem}_${id}`;
+    setOutputName(suggested.replace(/[^a-z0-9_]/g, '_').slice(0, 64));
+  };
+
+  const unlockLens = () => {
+    setLensLocked(false);
+    setLensName(defaultName);
+    setOutputName(defaultName);
+  };
 
   const fileTargets = [
-    { id: 'duckdb',           icon: '🦆', label: 'DuckDB',        desc: 'Single file — personal and workstation use. Ready for Reckoner immediately.',   available: true  },
-    { id: 'postgres-import',  icon: '🐘', label: 'PostgreSQL',    desc: 'Import package — DDL + CSV + load.sh. Shared and production use.',               available: false },
-    { id: 'sqlserver-import', icon: '🗄',  label: 'SQL Server',    desc: 'Import package for enterprise deployments.',                                       available: false },
+    { id: 'duckdb',           icon: '🦆', label: 'DuckDB',     desc: 'Single file — personal and workstation use. Ready for Reckoner immediately.',  available: true  },
+    { id: 'postgres-import',  icon: '🐘', label: 'PostgreSQL', desc: 'Import package — DDL + CSV + load.sh. Shared and production use.',              available: false },
+    { id: 'sqlserver-import', icon: '🗄',  label: 'SQL Server', desc: 'Import package for enterprise deployments.',                                    available: false },
   ];
 
   const sqlTargets = [
-    { id: 'postgres-views',   icon: '🐘', label: 'Materialized views (recommended)',
-      desc: 'Data stays exactly where it is. We generate a SQL script your DBA runs. Nothing moves.',         available: true  },
-    { id: 'postgres-import',  icon: '📦', label: 'Import package',
-      desc: 'Extracts data into a separate SNF schema. Use when you want a clean copy.',                       available: false },
+    { id: 'postgres-views',  icon: '🐘', label: 'Materialized views (recommended)',
+      desc: 'Data stays exactly where it is. We generate a SQL script your DBA runs. Nothing moves.',  available: true  },
+    { id: 'postgres-import', icon: '📦', label: 'Import package',
+      desc: 'Extracts data into a separate SNF schema. Use when you want a clean copy.',               available: false },
   ];
 
   const targets = isSql ? sqlTargets : fileTargets;
@@ -1208,26 +1410,43 @@ function Step5_NameAndTarget({ sourceData, onNext, onBack }) {
             Dataset name
             <span className="text-gray-400 font-normal ml-1">(shown in Reckoner)</span>
           </label>
-          <input type="text" value={lensName}
-            onChange={e => {
-              const v = e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
-              setLensName(v);
-              setOutputName(v);
-            }}
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono
-              focus:outline-none focus:ring-2 focus:ring-blue-300"
-            placeholder="my_dataset" />
+
+          {/* Locked state — lens_id matched to existing substrate */}
+          {lensLocked ? (
+            <div className="flex items-center gap-2">
+              <div className="flex-1 flex items-center gap-2 border border-teal-300 bg-teal-50
+                rounded-lg px-3 py-2">
+                <span className="text-xs font-medium text-teal-600 shrink-0">matched</span>
+                <span className="text-sm font-mono text-teal-800 flex-1">{lensName}</span>
+              </div>
+              <button onClick={unlockLens}
+                className="text-xs text-gray-400 hover:text-gray-600 px-2 py-2
+                  rounded-lg hover:bg-gray-100 transition-colors"
+                title="Use a different name">
+                ×
+              </button>
+            </div>
+          ) : (
+            <input type="text" value={lensName}
+              onChange={e => {
+                const v = e.target.value.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+                setLensName(v);
+                setOutputName(v);
+              }}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono
+                focus:outline-none focus:ring-2 focus:ring-blue-300"
+              placeholder="my_dataset" />
+          )}
           <p className="text-xs text-gray-400 mt-1">Lowercase letters, numbers, and underscores only.</p>
 
-          {/* dbt lens candidate chips — one-click name suggestions from metrics block */}
+          {/* dbt lens candidate chips */}
           {lensCandidates.length > 0 && (
             <div className="mt-2">
               <p className="text-xs text-gray-400 mb-1.5">Suggestions from your dbt metrics:</p>
               <div className="flex flex-wrap gap-1.5">
                 {lensCandidates.map(name => (
-                  <button
-                    key={name}
-                    onClick={() => { setLensName(name); setOutputName(name); }}
+                  <button key={name}
+                    onClick={() => { setLensName(name); setOutputName(name); setLensLocked(false); }}
                     className={`text-xs px-2.5 py-1 rounded-full border transition-all
                       ${lensName === name
                         ? 'bg-purple-100 border-purple-300 text-purple-700 font-medium'
@@ -1239,9 +1458,38 @@ function Step5_NameAndTarget({ sourceData, onNext, onBack }) {
               </div>
             </div>
           )}
+
+          {/* WS-4 — Compare with existing dataset */}
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <p className="text-xs font-medium text-gray-500 mb-1.5">
+              Compare with existing dataset
+              <span className="font-normal text-gray-400 ml-1">
+                — use the same lens to enable diff and set operations
+              </span>
+            </p>
+            {existingLenses.length === 0 ? (
+              <p className="text-xs text-gray-400 italic">
+                No substrates loaded yet — ingest your first dataset to enable comparison.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {existingLenses.map(id => (
+                  <button key={id}
+                    onClick={() => selectExistingLens(id)}
+                    className={`text-xs px-2.5 py-1 rounded-full border transition-all
+                      ${lensLocked && lensName === id
+                        ? 'bg-teal-100 border-teal-400 text-teal-700 font-medium'
+                        : 'bg-gray-50 border-gray-200 text-gray-500 hover:border-teal-300 hover:text-teal-600'
+                      }`}>
+                    {id}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Output name — label varies by path */}
+        {/* Output name */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
             {isSql ? 'Output script name' : 'Output file'}
@@ -1553,6 +1801,7 @@ export default function ModelBuilderApp() {
   const [nucleus,       setNucleus]       = useState(null);   // { type, columns, separator, prefix }
   const [lensConfig,    setLensConfig]    = useState(null);   // { lens_id, output_name, backend }
   const [dataConnected, setDataConnected] = useState(false);  // true after Step5a values loaded
+  const [structuralGroups, setStructuralGroups] = useState(null);  // List[StructuralGroup] | null
 
   const startOver = () => {
     setStep(1);
@@ -1561,6 +1810,7 @@ export default function ModelBuilderApp() {
     setNucleus(null);
     setLensConfig(null);
     setDataConnected(false);
+    setStructuralGroups(null);
   };
 
   // BuildSpec assembled from accumulated state — source shape varies by type
@@ -1589,6 +1839,7 @@ export default function ModelBuilderApp() {
     target:     { backend: lensConfig.backend, output_name: lensConfig.output_name },
     provenance: { created_at: new Date().toISOString() },
     options:    { overwrite: true },
+    structural_groups: structuralGroups ?? [],
   } : null;
 
   return (
@@ -1653,6 +1904,16 @@ export default function ModelBuilderApp() {
                 onBack={() => isVocabSource ? setStep(2) : setStep(3)}
                 onNext={n => {
                   setNucleus(n);
+                  setStep('4b');   // always go through structural groups step
+                }}
+              />
+            )}
+            {step === '4b' && mapping && (
+              <Step4b_StructuralGroups
+                mappedColumns={mapping}
+                onBack={() => setStep(4)}
+                onNext={groups => {
+                  setStructuralGroups(groups);
                   const isDbVocab = ['dbt', 'osi'].includes(sourceData?.type);
                   setStep(isDbVocab ? '5a' : 5);
                 }}
